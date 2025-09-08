@@ -2,7 +2,7 @@
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/vhvitro/metrics-extractor.git
    cd metrics-extractor
 
 2. **Create a `.env` file in the project root**
