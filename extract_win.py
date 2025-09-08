@@ -7,6 +7,8 @@ import threading
 import re
 import requests
 import os
+import hashlib
+import uuid
 
 # -- Bibliotecas específicas do Windows --
 try:
@@ -24,6 +26,55 @@ try:
 except ImportError:
     pynvml = None
     GPUtil = None
+
+def gerar_identificador_unico(wmi_connection, psutil_instance):
+    """
+    Gera um ID único para a máquina combinando informações de hardware.
+    Obs: usa SHA256 
+    """
+    print("DEBUG: Nenhum serial encontrado, gerando fingerprint da máquina...")
+    try:
+        # 1. ID do Processador
+        cpu_id = ""
+        for cpu in wmi_connection.Win32_Processor():
+            cpu_id = cpu.ProcessorId.strip()
+            break
+
+        # 2. Informações da Placa-mãe
+        board_info = ""
+        for board in wmi_connection.Win32_BaseBoard():
+            board_info = f"{board.Manufacturer.strip()}{board.Product.strip()}"
+            break
+        
+        # 3. Endereço MAC da primeira placa de rede ativa
+        mac_address = ""
+        for interface, addrs in psutil_instance.net_if_addrs().items():
+            # Pula interfaces de loopback e virtuais
+            if "Loopback" in interface or "Virtual" in interface or not addrs:
+                continue
+            for addr in addrs:
+                if addr.family == psutil_instance.AF_LINK:
+                    mac_address = addr.address.replace(':', '')
+                    break
+            if mac_address:
+                break
+        
+        # Se algum campo crucial estiver faltando, gera um UUID aleatório como último recurso
+        if not cpu_id or not board_info or not mac_address:
+            print("AVISO: Falha ao coletar todos os dados para o fingerprint. Gerando UUID aleatório.")
+            return str(uuid.uuid4())
+
+        # Combina tudo em uma única string
+        combined_string = f"{cpu_id}-{board_info}-{mac_address}"
+        print(f"DEBUG: String combinada para o hash: {combined_string}")
+
+        # Gera um hash SHA256 para criar um ID consistente e de tamanho fixo
+        hashed_id = hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
+        
+        return hashed_id
+    except Exception as e:
+        print(f"ERRO CRÍTICO ao gerar fingerprint: {e}. Gerando UUID aleatório.")
+        return str(uuid.uuid4())
     
 # Dicionário de métricas
 metrics = {
@@ -303,23 +354,57 @@ print("DEBUG: Bateria - End")
 
 # Info de Hardware via WMI
 print("DEBUG: Info Hardware - Init")
+
+chassis_snum = None
+board_snum = None
+serial_final = None
+
+# Tentativa 1: Obter informações do Chassi (não funciona para máquinas montadas geralmente)
+try:
+    if c:
+        for chassis in c.Win32_Chassis():
+            if chassis.SerialNumber and len(chassis.SerialNumber.strip()) > 4 and " " not in chassis.SerialNumber:
+                chassis_snum = chassis.SerialNumber.strip()
+            metrics["model"] = chassis.Model
+except Exception as e:
+    print(f"AVISO: Falha ao consultar Win32_Chassis. {e}")
+
+# Tentativa 2: Obter informações da Placa-Mãe (pode não funcionar por que as fabricantes geralmente não gravam o serial)
 try:
     if c:
         for board in c.Win32_BaseBoard():
             metrics["motherboard_manuf"] = board.Manufacturer
             metrics["motherboard_name"] = board.Product
             metrics["motherboard_version"] = board.Version
-            metrics["motherboard_snum"] = board.SerialNumber
-        for chassis in c.Win32_Chassis():
-            metrics["serial_number"] = chassis.SerialNumber
-            metrics["model"] = chassis.Model
+            if board.SerialNumber and len(board.SerialNumber.strip()) > 4 and " " not in board.SerialNumber:
+                board_snum = board.SerialNumber.strip()
+                metrics["motherboard_snum"] = board_snum
+
+except Exception as e:
+    print(f"AVISO: Falha ao consultar Win32_BaseBoard. {e}")
+
+# Lógica final de fallback
+serial_final = chassis_snum or board_snum
+if not serial_final:
+    # Tentativa 3 : Gerar o fingerprint (se tudo der errado, geramos nosso próprio serial)
+    serial_final = gerar_identificador_unico(c, psutil)
+
+metrics["serial_number"] = serial_final
+
+# Coleta de GPU Integrada (também em seu próprio try/except)
+try:
+    if c:
         for adapter in c.Win32_VideoController():
-            if adapter.Name and ('Intel' in adapter.Name or 'AMD Radeon' in adapter.Name):
+            if adapter.Name and ('Intel' in adapter.Name or 'AMD Radeon' in adapter.Name or 'VGA' in adapter.Name):
                 metrics["inter_gpu_name"] = adapter.Name
                 break
 except Exception as e:
-    print(f"ERRO: Falha ao obter informações de hardware via WMI. {e}")
+    print(f"AVISO: Falha ao consultar Win32_VideoController. {e}")
+
+
+print(f"DEBUG FINAL: Serial Number Coletado/Gerado: {metrics['serial_number']}")
 print("DEBUG: Info Hardware - End")
+
 
 # Firewall e Antivírus via linha de comando/WMI
 print("DEBUG: Firewall/Antivirus - Init")

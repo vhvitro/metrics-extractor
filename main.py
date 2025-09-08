@@ -84,7 +84,7 @@ class MetricasPayload(BaseModel):
     firewall_active: Optional[bool] = None
     firewall_status_info: Optional[str] = None
     recent_hardware_failures: Optional[int] = None
-    installed_softwares: Optional[List[str]] = None
+    installed_softwares: Optional[List[Optional[str]]] = None
     country: Optional[str] = None
     region_name: Optional[str] = None
     city: Optional[str] = None
@@ -102,7 +102,7 @@ def coletar_metricas(
     Recebe um payload completo de métricas, registra a máquina se for nova,
     e armazena o payload completo na tabela de métricas.
     """
-    # O número de série é essencial para identificar a máquina
+    # Usando o serial_number para identificar a máquina
     if not payload.serial_number:
         raise HTTPException(status_code=400, detail="O 'serial_number' da máquina é obrigatório e não foi encontrado.")
 
