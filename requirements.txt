@@ -1,0 +1,10 @@
+psutil
+pynvml
+GPUtil
+pynput
+requests
+amdgpu-stats
+pyadl
+fastapi
+uvicorn
+supabase
