@@ -862,7 +862,7 @@ API_URL = "http://127.0.0.1:8000/coletar-metricas/"
 
 # IDs que identificam esta máquina e a empresa cliente
 ID_DA_EMPRESA_CLIENTE = "COLOQUE_AQUI_O_UUID_DE_UMA_EMPRESA_CADASTRADA"
-LABEL_DA_MAQUINA = "Notebook-Dev-Linux" # Nome amigável
+LABEL_DA_MAQUINA = "Notebook-Dev-Linux"
 
 # Adiciona os parâmetros da URL
 params = {
