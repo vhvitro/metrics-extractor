@@ -10,3 +10,4 @@ uvicorn
 supabase
 dotenv
 wmi
+setuptools

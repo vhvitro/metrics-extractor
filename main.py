@@ -136,6 +136,9 @@ def coletar_metricas(
         # Adiciona a chave estrangeira e converte o timestamp
         dados_para_inserir["id_maquina"] = id_maquina_db
         dados_para_inserir["data_coleta"] = datetime.fromtimestamp(payload.time).isoformat()
+        # Converte o uptime de float para int 
+        if dados_para_inserir.get("uptime") is not None:
+            dados_para_inserir["uptime"] = int(dados_para_inserir["uptime"])
         # Remove a chave 'time' original que já foi convertida para 'data_coleta'
         del dados_para_inserir['time']
         # Remove a chave 'serial_number' pois não pertence a esta tabela
