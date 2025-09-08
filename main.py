@@ -1,13 +1,16 @@
 import os
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from supabase import create_client, Client
 from datetime import datetime
 
+load_dotenv() 
+
 # Configuração do Supabase
-SUPABASE_URL = "SUA_URL_DO_SUPABASE"
-SUPABASE_KEY = "SUA_CHAVE_SERVICE_ROLE"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or "SUA_URL" in SUPABASE_URL:
     raise Exception("As credenciais do Supabase não foram configuradas. Por favor, defina SUPABASE_URL.")
