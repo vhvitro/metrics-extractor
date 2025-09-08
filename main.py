@@ -102,7 +102,7 @@ def coletar_metricas(
     Recebe um payload completo de métricas, registra a máquina se for nova,
     e armazena o payload completo na tabela de métricas.
     """
-    # O número de série é essencial para identificar a máquina
+    # O número de série é o identificador único de cada máquina
     if not payload.serial_number:
         raise HTTPException(status_code=400, detail="O 'serial_number' da máquina é obrigatório e não foi encontrado.")
 
@@ -136,6 +136,9 @@ def coletar_metricas(
         # Adiciona a chave estrangeira e converte o timestamp
         dados_para_inserir["id_maquina"] = id_maquina_db
         dados_para_inserir["data_coleta"] = datetime.fromtimestamp(payload.time).isoformat()
+        # Converte o uptime de float para int 
+        if dados_para_inserir.get("uptime") is not None:
+            dados_para_inserir["uptime"] = int(dados_para_inserir["uptime"])
         # Remove a chave 'time' original que já foi convertida para 'data_coleta'
         del dados_para_inserir['time']
         # Remove a chave 'serial_number' pois não pertence a esta tabela

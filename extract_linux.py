@@ -22,7 +22,6 @@ from pynput import mouse, keyboard
 import re
 # Requisições
 import requests
-
 # Metricas exportadas
 metrics = {
     #Tempo (Volátil)
@@ -861,7 +860,7 @@ for name, metric in metrics.items():
 API_URL = "http://127.0.0.1:8000/coletar-metricas/"
 
 # IDs que identificam esta máquina e a empresa cliente
-ID_DA_EMPRESA_CLIENTE = "COLOQUE_AQUI_O_UUID_DE_UMA_EMPRESA_CADASTRADA"
+ID_DA_EMPRESA_CLIENTE = "6b7eecf2-8cd6-4f7a-82fe-71ec408a0c01"
 LABEL_DA_MAQUINA = "Notebook-Dev-Linux"
 
 # Adiciona os parâmetros da URL
