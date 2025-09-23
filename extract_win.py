@@ -234,7 +234,7 @@ def sanitize_json_values(data):
     elif isinstance(data, list):
         return [sanitize_json_values(item) for item in data]
     elif isinstance(data, float):
-        # Check if the value is infinite or NaN
+        # Checa se o valor é infinito ou Nan
         if math.isinf(data) or math.isnan(data):
             return None
         return data
