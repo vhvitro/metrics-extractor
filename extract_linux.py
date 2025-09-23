@@ -5,6 +5,7 @@ import pynvml
 import GPUtil
 import time
 import socket
+import math
 #Informações de GPU (para AMD), so importa se tiver o driver da AMD
 #amdgpu-py
 #import pyadl
@@ -831,6 +832,20 @@ def get_network_metrics():
 
     return host_list_temp, ping_list_temp, pkg_loss_list_temp
 
+def sanitize_json_values(data):
+    """Sanitiza métricas para não haver valores inf, -inf e Nan"""
+    if isinstance(data, dict):
+        return {k: sanitize_json_values(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_json_values(item) for item in data]
+    elif isinstance(data, float):
+        # Check if the value is infinite or NaN
+        if math.isinf(data) or math.isnan(data):
+            return None
+        return data
+    else:
+        return data
+
 
 hosts, pings, perdas = get_network_metrics()
 
@@ -868,6 +883,8 @@ params = {
     "id_empresa": ID_DA_EMPRESA_CLIENTE,
     "label_maquina": LABEL_DA_MAQUINA
 }
+
+metrics = sanitize_json_values(metrics)
 
 try:
     print("\nDEBUG: Enviando métricas para a API")

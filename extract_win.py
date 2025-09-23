@@ -5,6 +5,7 @@ import subprocess
 import platform
 import threading
 import re
+import math
 import requests
 import os
 
@@ -173,6 +174,22 @@ def measure_activity(duration=10):
         metrics["mouse_activity"] = mouse_activity
     except Exception as e:
         print(f"ERRO: Falha no monitoramento de entrada. {e}")
+
+# Outras funções
+def sanitize_json_values(data):
+    """Sanitiza métricas para não haver valores inf, -inf e Nan"""
+    if isinstance(data, dict):
+        return {k: sanitize_json_values(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_json_values(item) for item in data]
+    elif isinstance(data, float):
+        # Check if the value is infinite or NaN
+        if math.isinf(data) or math.isnan(data):
+            return None
+        return data
+    else:
+        return data
+
 
 
 # --- EXECUÇÃO PRINCIPAL ---
@@ -401,6 +418,8 @@ for key, value in metrics.items():
     if value is not None:
         print(f"{key}: {value}")
 print("--- Fim da Execução ---")
+
+metrics = sanitize_json_values(metrics)
 
 """!! Seção para enviar os dados para a API FastAPI !!""" 
 
