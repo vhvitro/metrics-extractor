@@ -10,9 +10,13 @@
     ```properties
     SUPABASE_URL="your_supabase_url"
     SUPABASE_KEY="your_supabase_key"
+    COMPANY_ID="your_company_id"
+    DEVICE_LABEL="your-device-label"
     ```
     - `SUPABASE_URL`: Your Supabase project URL.
     - `SUPABASE_KEY`: Your Supabase API key.
+    - `COMPANY_ID`: ID of the company that manages your device.
+    - `DEVICE_LABEL`: Your device's label.
 
 3. **Install dependencies**
     ```bash

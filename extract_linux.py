@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 import psutil
 # Informações da GPU (para NVIDIA)
 from pynvml import *
@@ -875,8 +877,9 @@ for name, metric in metrics.items():
 API_URL = "http://127.0.0.1:8000/coletar-metricas/"
 
 # IDs que identificam esta máquina e a empresa cliente
-ID_DA_EMPRESA_CLIENTE = "6b7eecf2-8cd6-4f7a-82fe-71ec408a0c01"
-LABEL_DA_MAQUINA = "Notebook-Dev-Linux"
+load_dotenv()
+ID_DA_EMPRESA_CLIENTE = os.getenv("COMPANY_ID")
+LABEL_DA_MAQUINA = os.getenv("DEVICE_LABEL")
 
 # Adiciona os parâmetros da URL
 params = {

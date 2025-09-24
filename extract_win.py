@@ -8,6 +8,7 @@ import re
 import math
 import requests
 import os
+from dotenv import load_dotenv
 import hashlib
 import uuid
 
@@ -512,8 +513,9 @@ metrics = sanitize_json_values(metrics)
 API_URL = "http://127.0.0.1:8000/coletar-metricas/"
 
 # IDs que identificam esta máquina e a empresa cliente
-ID_DA_EMPRESA_CLIENTE = "6b7eecf2-8cd6-4f7a-82fe-71ec408a0c01"
-LABEL_DA_MAQUINA = "Pc-Teste"
+load_dotenv()
+ID_DA_EMPRESA_CLIENTE = os.getenv("COMPANY_ID")
+LABEL_DA_MAQUINA = os.getenv("DEVICE_LABEL")
 
 # Adiciona os parâmetros da URL
 params = {
