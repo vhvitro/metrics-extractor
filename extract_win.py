@@ -11,536 +11,522 @@ import os
 from dotenv import load_dotenv
 import hashlib
 import uuid
+import winreg
+import datetime 
 
 # -- Bibliotecas específicas do Windows --
 try:
     import wmi
-    # win32evtlog não será usado para simplificar
 except ImportError:
     print("ERRO: A biblioteca 'wmi' não foi encontrada. Instale com 'pip install wmi'.")
     exit()
 
-# -- Bibliotecas para GPU NVIDIA (compatível com Windows) --
+# -- Bibliotecas para GPU NVIDIA --
 try:
     from pynvml import *
     import pynvml
-    import GPUtil
 except ImportError:
     pynvml = None
-    GPUtil = None
 
-def gerar_identificador_unico(wmi_connection, psutil_instance):
-    """
-    Gera um ID único para a máquina combinando informações de hardware.
-    Obs: usa SHA256 
-    """
-    print("DEBUG: Nenhum serial encontrado, gerando fingerprint da máquina...")
-    try:
-        # 1. ID do Processador
-        cpu_id = ""
-        for cpu in wmi_connection.Win32_Processor():
-            cpu_id = cpu.ProcessorId.strip()
-            break
-
-        # 2. Informações da Placa-mãe
-        board_info = ""
-        for board in wmi_connection.Win32_BaseBoard():
-            board_info = f"{board.Manufacturer.strip()}{board.Product.strip()}"
-            break
-        
-        # 3. Endereço MAC da primeira placa de rede ativa
-        mac_address = ""
-        for interface, addrs in psutil_instance.net_if_addrs().items():
-            # Pula interfaces de loopback e virtuais
-            if "Loopback" in interface or "Virtual" in interface or not addrs:
-                continue
-            for addr in addrs:
-                if addr.family == psutil_instance.AF_LINK:
-                    mac_address = addr.address.replace(':', '')
-                    break
-            if mac_address:
-                break
-        
-        # Se algum campo crucial estiver faltando, gera um UUID aleatório como último recurso
-        if not cpu_id or not board_info or not mac_address:
-            print("AVISO: Falha ao coletar todos os dados para o fingerprint. Gerando UUID aleatório.")
-            return str(uuid.uuid4())
-
-        # Combina tudo em uma única string
-        combined_string = f"{cpu_id}-{board_info}-{mac_address}"
-        print(f"DEBUG: String combinada para o hash: {combined_string}")
-
-        # Gera um hash SHA256 para criar um ID consistente e de tamanho fixo
-        hashed_id = hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
-        
-        return hashed_id
-    except Exception as e:
-        print(f"ERRO CRÍTICO ao gerar fingerprint: {e}. Gerando UUID aleatório.")
-        return str(uuid.uuid4())
-    
-# Dicionário de métricas
+# --- Dicionário de Métricas (Completo) ---
 metrics = {
-    "time": None,
-    "cpu_temperature": None,
-    "cpu_usage": None,
-    "ram_usage": None,
-    "swap_usage": None,
-    "disk_usage": {},
-    "cpu_frequency": None,
-    "fan_rpm_cpu": None,
-    "fan_rpm_gpu": None,
-    "gpu_temperature": None,
-    "gpu_usage": None,
-    "gpu_voltage": None,
-    "gpu_memory": None,
-    "os_patches": None,
-    "smart_overall": None,
-    "ssd_perc_lifetime": None,
-    "ssd_power_hours": None,
-    "ssd_unsafe_shutdowns": None,
-    "ssd_irrecuperable_errors": None,
-    "ssd_log_errors": None,
-    "battery_health": None,
-    "battery_time": None,
-    "battery_perc": None,
-    "is_charging": None,
-    "uptime": None,
-    "instant_power_consumption": None,
-    "click_rate": None,
-    "keypress_rate": None,
-    "mouse_activity": None,
-    "host_list": None,
-    "ping_list": None,
-    "pkg_loss_list": None,
-    "mac": None,
-    "ip4": None,
-    "ipv6": None,
-    "failed_logins": None,
-    "antivirus_status": None,
-    "firewall_active": None,
-    "firewall_status_info": None,
-    "operation_sys": None,
-    "os_version": None,
-    "architecture": None,
-    "processor": None,
-    "host_name": None,
-    "total_memory": None,
-    "swap_total": None,
-    "physical_nuclei": None,
-    "logical_nuclei": None,
-    "gpu_name": None,
-    "motherboard_manuf": None,
-    "motherboard_name": None,
-    "motherboard_snum": None,
-    "mb_is_replaceable": None,
-    "mb_is_a_hosting_b": None,
-    "mb_loc_chassis": None,
-    "motherboard_version": None,
-    "chassis_handle": None,
-    "inter_gpu_name": None,
-    "serial_number": None,
-    "model": None,
-    "hardware_config": None,
-    "recent_hardware_failures": None,
-    "installed_softwares": None,
-    "country": None,
-    "region_name": None,
-    "city": None,
-    "lat": None,
-    "lon": None
+    "time": None, "cpu_temperature": None, "cpu_usage": None, "ram_usage": None, "swap_usage": None, 
+    "disk_usage": {}, "cpu_frequency": None, "fan_rpm_cpu": None, "fan_rpm_gpu": None, 
+    "gpu_temperature": None, "gpu_usage": None, "gpu_voltage": None, "gpu_memory": None, 
+    "os_patches": None, "smart_overall": None, "ssd_perc_lifetime": None, "ssd_power_hours": None, 
+    "ssd_unsafe_shutdowns": None, "ssd_irrecuperable_errors": None, "ssd_log_errors": None, 
+    "battery_health": None, "battery_time": None, "battery_perc": None, "is_charging": None, 
+    "uptime": None, "instant_power_consumption": None, "click_rate": None, "keypress_rate": None, 
+    "mouse_activity": None, "host_list": None, "ping_list": None, "pkg_loss_list": None, 
+    "mac": None, "ipv4": None, "ipv6": None, "failed_logins": None, "antivirus_status": None, 
+    "firewall_active": None, "firewall_status_info": None, "operation_sys": None, 
+    "os_version": None, "architecture": None, "processor": None, "host_name": None, 
+    "total_memory": None, "swap_total": None, "physical_nuclei": None, "logical_nuclei": None, 
+    "gpu_name": None, "motherboard_manuf": None, "motherboard_name": None, "motherboard_snum": None, 
+    "mb_is_replaceable": None, "mb_is_a_hosting_b": None, "mb_loc_chassis": None, 
+    "motherboard_version": None, "chassis_handle": None, "inter_gpu_name": None, 
+    "serial_number": None, "model": None, "hardware_config": None, "recent_hardware_failures": None, 
+    "installed_softwares": None, "country": None, "region_name": None, "city": None, 
+    "lat": None, "lon": None
 }
 
-# Inicializa o WMI
-try:
-    c = wmi.WMI()
-except Exception as e:
-    print(f"ERRO: Não foi possível conectar ao WMI. {e}")
-    exit()
-
 # --- FUNÇÕES AUXILIARES ---
-def _parse_ping_windows(output, host):
-    try:
-        loss_match = re.search(r'Loss = (\d+)%', output)
-        avg_match = re.search(r'Average = (\d+)ms', output)
-        if loss_match and avg_match:
-            return {'host': host, 'status': 'sucesso', 'perda_pacotes': int(loss_match.group(1)), 'latencia_avg': int(avg_match.group(1))}
-        else:
-            return {'host': host, 'status': 'sem_resposta', 'perda_pacotes': 100, 'latencia_avg': None}
-    except Exception as e:
-        return {'host': host, 'status': 'erro_parse', 'erro': str(e)}
 
-def ping_network_stats(host='8.8.8.8', count=4):
+def gerar_identificador_unico(wmi_connection):
+    print("DEBUG: Nenhum serial encontrado, gerando fingerprint da máquina...")
     try:
-        cmd = ['ping', '-n', str(count), host]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
-        return _parse_ping_windows(result.stdout, host)
-    except subprocess.TimeoutExpired:
-        return {'host': host, 'status': 'timeout', 'erro': 'Comando ping expirou', 'latencia_avg': None, 'perda_pacotes': 100}
+        cpu_id = wmi_connection.Win32_Processor()[0].ProcessorId.strip()
+        board = wmi_connection.Win32_BaseBoard()[0]
+        board_info = f"{board.Manufacturer.strip()}{board.Product.strip()}"
+        mac_address = ""
+        for interface, addrs in psutil.net_if_addrs().items():
+            if "Loopback" in interface or "Virtual" in interface: continue
+            for addr in addrs:
+                if addr.family == psutil.AF_LINK:
+                    mac_address = addr.address.replace(':', ''); break
+            if mac_address: break
+        if not all([cpu_id, board_info, mac_address]):
+            return str(uuid.uuid4())
+        combined_string = f"{cpu_id}-{board_info}-{mac_address}"
+        return hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
     except Exception as e:
-        return {'host': host, 'status': 'erro', 'erro': str(e), 'latencia_avg': None, 'perda_pacotes': 100}
+        print(f"ERRO CRÍTICO ao gerar fingerprint: {e}"); return str(uuid.uuid4())
+
+# ### FUNÇÃO CORRIGIDA E FINAL ###
+def get_serial_number(wmi_connection):
+    try:
+        # 1. Tenta Win32_BIOS (geralmente o mais confiável para o serial do sistema)
+        bios = wmi_connection.Win32_BIOS()[0]
+        if bios.SerialNumber and len(bios.SerialNumber.strip()) > 4:
+            return bios.SerialNumber.strip()
+
+        # 2. Tenta Win32_ComputerSystemProduct (outra fonte comum para o serial do sistema)
+        system_product = wmi_connection.Win32_ComputerSystemProduct()[0]
+        if system_product.IdentifyingNumber and len(system_product.IdentifyingNumber.strip()) > 4:
+            return system_product.IdentifyingNumber.strip()
+
+        # 3. Tenta Win32_SystemEnclosure (serial do chassi)
+        enclosure = wmi_connection.Win32_SystemEnclosure()[0]
+        if enclosure.SerialNumber and len(enclosure.SerialNumber.strip()) > 4:
+            return enclosure.SerialNumber.strip()
+
+        # 4. Tenta Win32_BaseBoard (serial da placa-mãe, como último recurso antes do hash)
+        board = wmi_connection.Win32_BaseBoard()[0]
+        if board.SerialNumber and len(board.SerialNumber.strip()) > 4:
+            return board.SerialNumber.strip()
+
+        # 5. Se tudo falhar, gera um identificador único
+        return gerar_identificador_unico(wmi_connection)
+
+    except Exception as e:
+        print(f"AVISO: Falha ao obter serial_number: {e}")
+        return gerar_identificador_unico(wmi_connection)
+
+def get_integrated_gpu_name(wmi_connection):
+    try:
+        gpu_names = []
+        for gpu in wmi_connection.Win32_VideoController():
+            name = gpu.Name.strip()
+            if name and "NVIDIA" not in name:
+                gpu_names.append(name)
+        if gpu_names:
+            metrics["inter_gpu_name"] = ", ".join(gpu_names)
+    except Exception as e:
+        print(f"AVISO: Falha ao obter GPU integrada. {e}")
 
 def get_network_metrics():
-    hosts_to_test = ['8.8.8.8', '1.1.1.1', 'google.com', 'github.com']
-    host_list_temp = []
-    ping_list_temp = []
-    pkg_loss_list_temp = []
+    hosts_to_test = ['8.8.8.8', '1.1.1.1', 'google.com']
+    results = []
     for host in hosts_to_test:
-        stats = ping_network_stats(host, count=4)
-        host_list_temp.append(host)
-        ping_list_temp.append(stats.get('latencia_avg'))
-        pkg_loss_list_temp.append(stats.get('perda_pacotes'))
-    return host_list_temp, ping_list_temp, pkg_loss_list_temp
+        try:
+            cmd = ['ping', '-n', '4', host]
+            output = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW, encoding='cp850', errors='ignore'
+            ).stdout
 
-# Funções de monitoramento de input
-total_clicks = 0
-total_keypresses = 0
-total_mouse_movements = 0
-mouse_activity = False
+            # Tenta capturar a linha com Enviados/Recebidos/Perdidos (independente do idioma)
+            # Exemplo PT-BR: "Pacotes: Enviados = 4, Recebidos = 4, Perdidos = 0 (0% de perda)"
+            # Exemplo EN:    "Packets: Sent = 4, Received = 4, Lost = 0 (0% loss)"
+            line_match = re.search(r'(\d+).+?(\d+).+?(\d+).*?\(', output)
+            
+            perda = None
+            if line_match:
+                enviados = int(line_match.group(1))
+                recebidos = int(line_match.group(2))
+                perdidos = int(line_match.group(3))
+                if enviados > 0:
+                    perda = int((perdidos / enviados) * 100)
+
+            # Latência média (PT-BR: "Média = Xms", EN: "Average = Xms")
+            avg_match = re.search(r'(M[eé]dia|Average).*?=\s?(\d+)ms', output, re.IGNORECASE)
+            latencia = int(avg_match.group(2)) if avg_match else None
+
+            results.append({
+                'host': host,
+                'perda_pacotes': perda if perda is not None else 100,
+                'latencia_avg': latencia
+            })
+
+        except subprocess.TimeoutExpired:
+            results.append({'host': host, 'perda_pacotes': 100, 'latencia_avg': None})
+
+    metrics["host_list"] = [r['host'] for r in results]
+    metrics["ping_list"] = [r['latencia_avg'] for r in results]
+    metrics["pkg_loss_list"] = [r['perda_pacotes'] for r in results]
+
+
+
+def get_antivirus_status():
+    try:
+        wmi_security = wmi.WMI(namespace="root\\SecurityCenter2")
+        av_products = wmi_security.AntiVirusProduct()
+        return av_products[0].displayName if av_products else "Nenhum antivírus detectado"
+    except Exception as e:
+        print(f"ERRO ao verificar antivírus: {e}"); return "Falha na verificação"
+
+def get_installed_software():
+    software_list = []
+    uninstall_paths = [r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"]
+    for path in uninstall_paths:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    try:
+                        sub_key_name = winreg.EnumKey(key, i)
+                        with winreg.OpenKey(key, sub_key_name) as sub_key:
+                            display_name = winreg.QueryValueEx(sub_key, "DisplayName")[0]
+                            if display_name and "update" not in display_name.lower():
+                                software_list.append(display_name)
+                    except OSError:
+                        continue
+        except FileNotFoundError:
+            pass
+    return sorted(list(set(software_list)))
+
+total_clicks, total_keypresses, mouse_activity = 0, 0, False
 stop_event = threading.Event()
 def on_click(x, y, button, pressed):
     global total_clicks
-    if pressed:
-        total_clicks += 1
+    if pressed: total_clicks += 1
 def on_press(key):
     global total_keypresses
     total_keypresses += 1
-def on_move(x, y):
-    global total_mouse_movements, mouse_activity
-    total_mouse_movements += 1
-    mouse_activity = True
 def measure_activity(duration=10):
     global total_clicks, total_keypresses, mouse_activity
-    total_clicks = 0
-    total_keypresses = 0
-    total_mouse_movements = 0
-    mouse_activity = False
+    total_clicks, total_keypresses, mouse_activity = 0, 0, False
     try:
         from pynput import mouse, keyboard
-        with mouse.Listener(on_click=on_click, on_move=on_move) as mouse_listener, \
-                keyboard.Listener(on_press=on_press) as keyboard_listener:
+        with mouse.Listener(on_click=on_click) as m_listener, keyboard.Listener(on_press=on_press) as k_listener:
             stop_event.wait(duration)
-            mouse_listener.stop()
-            keyboard_listener.stop()
+            m_listener.stop(); k_listener.stop()
         metrics["click_rate"] = total_clicks / duration
         metrics["keypress_rate"] = total_keypresses / duration
-        metrics["mouse_activity"] = mouse_activity
+        metrics["mouse_activity"] = total_clicks > 0 or total_keypresses > 0
     except Exception as e:
-        print(f"ERRO: Falha no monitoramento de entrada. {e}")
+        print(f"AVISO: Falha no monitoramento de entrada ('pynput' pode não estar instalado). {e}")
 
-# Outras funções
+def get_battery_health(wmi_connection):
+    try:
+        battery_info = wmi_connection.Win32_Battery()[0]
+        if battery_info.DesignCapacity and battery_info.FullChargeCapacity:
+            design_capacity = float(battery_info.DesignCapacity)
+            full_charge_capacity = float(battery_info.FullChargeCapacity)
+            if design_capacity > 0:
+                health = (full_charge_capacity / design_capacity) * 100
+                metrics["battery_health"] = round(health, 2)
+    except Exception as e:
+        print(f"AVISO: Não foi possível calcular a saúde da bateria. {e}")
+
+def get_smart_status():
+    try:
+        cmd = "wmic diskdrive get status"
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        status_list = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+        actual_statuses = status_list[1:]
+        if not actual_statuses:
+            metrics["smart_overall"] = "Not Available"
+        elif any(s != "OK" for s in actual_statuses):
+            metrics["smart_overall"] = "Failure_Predicted"
+        else:
+            metrics["smart_overall"] = "OK"
+    except Exception as e:
+        print(f"ERRO: Falha ao obter status S.M.A.R.T. via wmic. {e}")
+
+def get_failed_logins(wmi_connection, hours_ago=24):
+    try:
+        start_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours_ago)
+        wmi_time_str = start_time.strftime('%Y%m%d%H%M%S.000000+000')
+        query = f"SELECT * FROM Win32_NTLogEvent WHERE Logfile='Security' AND EventCode='4625' AND TimeGenerated >= '{wmi_time_str}'"
+        metrics["failed_logins"] = len(wmi_connection.query(query))
+    except wmi.x_wmi:
+        print("AVISO: Falha ao consultar logs de segurança. Execute como Administrador.")
+    except Exception as e:
+        print(f"ERRO ao contar falhas de login: {e}")
+
+def get_cpu_temperature_wmi():
+    try:
+        w = wmi.WMI(namespace="root\\WMI")
+        temp_info = w.MSAcpi_ThermalZoneTemperature()
+        if temp_info:
+            metrics["cpu_temperature"] = round((temp_info[0].CurrentTemperature / 10.0) - 273.15, 2)
+    except Exception as e:
+        print(f"ERRO ao obter temperatura via root\\WMI: {e}")
+
 def sanitize_json_values(data):
-    """Sanitiza métricas para não haver valores inf, -inf e Nan"""
-    if isinstance(data, dict):
-        return {k: sanitize_json_values(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [sanitize_json_values(item) for item in data]
-    elif isinstance(data, float):
-        # Checa se o valor é infinito ou Nan
-        if math.isinf(data) or math.isnan(data):
-            return None
-        return data
-    else:
-        return data
-
-
+    if isinstance(data, dict): return {k: sanitize_json_values(v) for k, v in data.items()}
+    if isinstance(data, list): return [sanitize_json_values(item) for item in data]
+    if isinstance(data, float) and (math.isinf(data) or math.isnan(data)): return None
+    return data
 
 # --- EXECUÇÃO PRINCIPAL ---
-
-# CPU e RAM
-print("DEBUG: Uso de CPU/RAM/Swap - Init")
-try:
-    info_ram = psutil.virtual_memory()
-    metrics["ram_usage"] = info_ram.percent / 100
-    metrics["cpu_usage"] = psutil.cpu_percent(interval=1) / 100
-    metrics["total_memory"] = info_ram.total
-    info_swap = psutil.swap_memory()
-    metrics["swap_usage"] = info_swap.percent / 100
-    metrics["swap_total"] = info_swap.total
-except Exception as e:
-    print(f"ERRO: {e}")
-print("DEBUG: Uso de CPU/RAM/Swap - End")
-
-# Uptime
-print("DEBUG: Tempo Ligado - Init")
-try:
-    metrics["uptime"] = time.time() - psutil.boot_time()
-except Exception as e:
-    print("ERRO: ", e)
-print("DEBUG: Tempo Ligado - End")
-
-# Localização
-print("DEBUG: Localização - Init")
-try:
-    response = requests.get('http://ip-api.com/json/', timeout=5)
-    dados_localizacao = response.json()
-    if dados_localizacao['status'] == 'success':
-        metrics["country"] = dados_localizacao['country']
-        metrics["region_name"] = dados_localizacao['regionName']
-        metrics["city"] = dados_localizacao['city']
-        metrics["lat"] = dados_localizacao['lat']
-        metrics["lon"] = dados_localizacao['lon']
-except requests.exceptions.RequestException as e:
-    print(f"Erro ao conectar com a API: {e}")
-print("DEBUG: Localização - End")
-
-# Endereços de Rede
-print("DEBUG: Endereços - Init")
-try:
-    interfaces = psutil.net_if_addrs()
-    for interface_name, interface_addresses in interfaces.items():
-        if "Loopback" in interface_name or "Virtual" in interface_name or "Teredo" in interface_name: continue
-        for addr in interface_addresses:
-            if addr.family == socket.AF_INET: metrics["ip4"] = addr.address
-            elif addr.family == socket.AF_INET6: metrics["ipv6"] = addr.address
-            elif addr.family == psutil.AF_LINK: metrics["mac"] = addr.address
-except Exception as e:
-    print(f"Erro ao ler informações de rede: {e}")
-print("DEBUG: Endereço - End")
-
-# Info OS/CPU
-print("DEBUG: Info OS/CPU/Memória - Init")
-try:
-    metrics["operation_sys"] = platform.system()
-    metrics["os_version"] = platform.release()
-    metrics["architecture"] = platform.machine()
-    metrics["host_name"] = platform.node()
-    metrics["processor"] = platform.processor()
-    metrics["physical_nuclei"] = psutil.cpu_count(logical=False)
-    metrics["logical_nuclei"] = psutil.cpu_count(logical=True)
-    try: metrics["cpu_frequency"] = psutil.cpu_freq().current
-    except AttributeError: print("Frequência da CPU não disponível.")
-except Exception as e:
-    print(f"ERROR: {e}")
-print("DEBUG: Info OS/CPU/Memória - End")
-
-# Ping e Latência
-print("DEBUG: Perda de dados e ping - init")
-hosts, pings, perdas = get_network_metrics()
-if hosts:
-    metrics["host_list"] = hosts
-    metrics["ping_list"] = pings
-    metrics["pkg_loss_list"] = perdas
-else:
-    print("Nenhuma métrica de rede válida foi coletada. As métricas permanecem None.")
-print("DEBUG: Perca de dados e ping - End")
-
-# Monitoramento de input
-print("DEBUG: Input Monitoring - Init")
-measure_activity(duration=10)
-print("DEBUG: Input Monitoring - End")
-
-# Uso de SSD/HD
-print("DEBUG: Uso de SSD/HD - Init")
-try:
-    info_particoes = psutil.disk_partitions(all=True)
-    for particao in info_particoes:
-        if 'cdrom' in particao.opts or particao.fstype == '': continue
-        drive_letter = particao.device.split(':')[0]
-        metrics["disk_usage"][drive_letter] = psutil.disk_usage(particao.mountpoint).percent / 100
-except Exception as e:
-    print("ERRO: ", e)
-print("DEBUG: Uso de SSD/HD - End")
-
-# Temperatura/Ventoinhas
-print("DEBUG: Temperatura/Ventoinhas - Init")
-try:
-    if c:
-        temp_data = c.MSAcpi_ThermalZoneTemperature()
-        if temp_data:
-            metrics["cpu_temperature"] = (temp_data[0].CurrentTemperature / 10) - 273.15
-except Exception as e:
-    print(f"ERRO: Falha ao obter a temperatura da CPU via WMI. {e}")
-metrics["fan_rpm_cpu"] = None
-metrics["fan_rpm_gpu"] = None
-print("DEBUG: Temperatura/Ventoinhas - End")
-
-# Bateria
-print("DEBUG: Bateria - Init")
-try:
-    info_bateria = psutil.sensors_battery()
-    if info_bateria:
-        metrics["battery_perc"] = info_bateria.percent
-        metrics["is_charging"] = info_bateria.power_plugged
-        metrics["battery_time"] = info_bateria.secsleft if not metrics["is_charging"] else float('inf')
-    if c:
-        for battery in c.Win32_Battery():
-            metrics["battery_health"] = battery.EstimatedChargeRemaining / 100
-            break
-except Exception as e:
-    print(f"ERRO: {e}")
-print("DEBUG: Bateria - End")
-
-# Info de Hardware via WMI
-print("DEBUG: Info Hardware - Init")
-
-chassis_snum = None
-board_snum = None
-serial_final = None
-
-# Tentativa 1: Obter informações do Chassi (não funciona para máquinas montadas geralmente)
-try:
-    if c:
-        for chassis in c.Win32_Chassis():
-            if chassis.SerialNumber and len(chassis.SerialNumber.strip()) > 4 and " " not in chassis.SerialNumber:
-                chassis_snum = chassis.SerialNumber.strip()
-            metrics["model"] = chassis.Model
-except Exception as e:
-    print(f"AVISO: Falha ao consultar Win32_Chassis. {e}")
-
-# Tentativa 2: Obter informações da Placa-Mãe (pode não funcionar por que as fabricantes geralmente não gravam o serial)
-try:
-    if c:
-        for board in c.Win32_BaseBoard():
-            metrics["motherboard_manuf"] = board.Manufacturer
-            metrics["motherboard_name"] = board.Product
-            metrics["motherboard_version"] = board.Version
-            if board.SerialNumber and len(board.SerialNumber.strip()) > 4 and " " not in board.SerialNumber:
-                board_snum = board.SerialNumber.strip()
-                metrics["motherboard_snum"] = board_snum
-
-except Exception as e:
-    print(f"AVISO: Falha ao consultar Win32_BaseBoard. {e}")
-
-# Lógica final de fallback
-serial_final = chassis_snum or board_snum
-if not serial_final:
-    # Tentativa 3 : Gerar o fingerprint (se tudo der errado, geramos nosso próprio serial)
-    serial_final = gerar_identificador_unico(c, psutil)
-
-metrics["serial_number"] = serial_final
-
-# Coleta de GPU Integrada (também em seu próprio try/except)
-try:
-    if c:
-        for adapter in c.Win32_VideoController():
-            if adapter.Name and ('Intel' in adapter.Name or 'AMD Radeon' in adapter.Name or 'VGA' in adapter.Name):
-                metrics["inter_gpu_name"] = adapter.Name
-                break
-except Exception as e:
-    print(f"AVISO: Falha ao consultar Win32_VideoController. {e}")
-
-
-print(f"DEBUG FINAL: Serial Number Coletado/Gerado: {metrics['serial_number']}")
-print("DEBUG: Info Hardware - End")
-
-
-# Firewall e Antivírus via linha de comando/WMI
-print("DEBUG: Firewall/Antivirus - Init")
-try:
-    result = subprocess.run(['netsh', 'advfirewall', 'show', 'allprofiles'], capture_output=True, text=True, check=True)
-    output = result.stdout
-    metrics["firewall_active"] = "State: ON" in output or "Estado: ATIVADO" in output
-    metrics["firewall_status_info"] = output.strip()
-except Exception as e:
-    print(f"ERRO: Falha ao obter status do firewall. {e}")
-try:
-    if c:
-        for p in c.Win32_Product():
-            if p.Name and ('antivirus' in p.Name.lower() or 'security' in p.Name.lower()):
-                metrics["antivirus_status"] = "Instalado"
-                break
-        else:
-            metrics["antivirus_status"] = "Não encontrado"
-except Exception as e:
-    print(f"ERRO: Falha ao verificar antivírus. {e}")
-print("DEBUG: Firewall/Antivirus - End")
-
-# Softwares e Patches via WMI
-print("DEBUG: Software/Patches - Init")
-try:
-    if c:
-        metrics["installed_softwares"] = [p.Name for p in c.Win32_Product()]
-        metrics["os_patches"] = [update.Description for update in c.Win32_QuickFixEngineering()]
-except Exception as e:
-    print(f"ERRO: Falha ao obter lista de softwares ou patches. {e}")
-print("DEBUG: Software/Patches - End")
-
-# Falhas de Login
-print("DEBUG: Tentativas de Login - Init")
-metrics["failed_logins"] = None
-print("DEBUG: Tentativas de Login - End")
-
-# GPU (NVIDIA)
-print("DEBUG: GPU - Init")
-marca = None
-try:
-    nvmlInit()
-    print("DEBUG: GPU encontrada: NVIDIA")
-    handle = nvmlDeviceGetHandleByIndex(0)
-    gpu_name = nvmlDeviceGetName(handle)
-    print(f"DEBUG: Nome da GPU: {gpu_name}")
-    nvmlShutdown()
-    marca = 'Nvidia'
-except NVMLError as error:
-    print("Não é uma GPU NVIDIA ou o driver não está instalado.")
-
-if marca == 'Nvidia':
-    print("DEBUG: Medidas de GPU (NVIDIA) - Init")
+if __name__ == "__main__":
     try:
-        pynvml.nvmlInit()
-        device_count = pynvml.nvmlDeviceGetCount()
-        for i in range(device_count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            # Corrigido: pynvml.nvmlDeviceGetName() retorna uma string
-            # e não precisa de .decode()
-            metrics["gpu_name"] = pynvml.nvmlDeviceGetName(handle)
-            metrics["gpu_temperature"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            metrics["gpu_usage"] = (mem_info.used / mem_info.total)
-            metrics["gpu_memory"] = mem_info.total
-            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-        pynvml.nvmlShutdown()
+        print("DEBUG: Conectando ao WMI - Init")
+        c = wmi.WMI()
+        print("DEBUG: Conectado ao WMI - End")
     except Exception as e:
-        print(f"Erro ao obter métricas da GPU: {e}")
-else:
-    print("DEBUG: Nenhuma GPU NVIDIA detectada, pulando medidas específicas.")
-print("DEBUG: GPU - End")
+        print(f"ERRO CRÍTICO: Não foi possível conectar ao WMI. {e}")
+        exit()
 
+    print("--- Iniciando Coleta de Métricas ---")
 
-# Finalização
-metrics["time"] = time.time()
-print("\n--- Métricas Coletadas ---")
-for key, value in metrics.items():
-    if value is not None:
-        print(f"{key}: {value}")
-print("--- Fim da Execução ---")
+    print("DEBUG: Coletando métricas básicas de CPU/RAM/Uptime - Init")
+    metrics.update({
+        "ram_usage": psutil.virtual_memory().percent / 100,
+        "cpu_usage": psutil.cpu_percent(interval=1),
+        "total_memory": psutil.virtual_memory().total,
+        "swap_usage": psutil.swap_memory().percent,
+        "swap_total": psutil.swap_memory().total,
+        "uptime": time.time() - psutil.boot_time()
+    })
+    print("DEBUG: Coletando métricas básicas de CPU/RAM/Uptime - End")
 
-metrics = sanitize_json_values(metrics)
+    print("DEBUG: Chamando get_network_metrics() - Init")
+    get_network_metrics()
+    print("DEBUG: Chamando get_network_metrics() - End")
 
-"""!! Seção para enviar os dados para a API FastAPI !!""" 
+    try:
+        resp = requests.get('http://ip-api.com/json/', timeout=5).json()
+        if resp.get('status') == 'success':
+            metrics.update({
+                k: resp.get(v) for k, v in {
+                    "country": "country",
+                    "region_name": "regionName",
+                    "city": "city",
+                    "lat": "lat",
+                    "lon": "lon"
+                }.items()
+            })
+            print(f"DEBUG: Localização obtida: {metrics.get('country')}, {metrics.get('city')}")
+    except Exception as e:
+        print(f"DEBUG: Falha ao obter localização: {e}")
 
-# URL da API
-API_URL = "http://127.0.0.1:8000/coletar-metricas/"
+    print("DEBUG: Coletando endereços de rede (MAC/IP) - Init")
+    try:
+        stats = psutil.net_if_stats()
+        all_addrs = psutil.net_if_addrs()
+        for interface, addr_list in all_addrs.items():
+            if interface in stats and stats[interface].isup and "Loopback" not in interface:
+                for addr in addr_list:
+                    if addr.family == psutil.AF_LINK and not metrics.get("mac"):
+                        metrics["mac"] = addr.address
+                    elif addr.family == socket.AF_INET and not metrics.get("ip4"):
+                        metrics["ipv4"] = addr.address
+                    elif addr.family == socket.AF_INET6 and not metrics.get("ipv6"):
+                        metrics["ipv6"] = addr.address
+    except Exception as e:
+        print(f"AVISO: Falha ao obter endereços de rede: {e}")
+    print("DEBUG: Coletando endereços de rede (MAC/IP) - End")
 
-# IDs que identificam esta máquina e a empresa cliente
-load_dotenv()
-ID_DA_EMPRESA_CLIENTE = os.getenv("COMPANY_ID")
-LABEL_DA_MAQUINA = os.getenv("DEVICE_LABEL")
+    print("DEBUG: Monitorando atividade de entrada (10s) - Init")
+    measure_activity(duration=10)
+    print("DEBUG: Monitorando atividade de entrada (10s) - End")
+    print(f"DEBUG: click_rate={metrics.get('click_rate')}, keypress_rate={metrics.get('keypress_rate')}, mouse_activity={metrics.get('mouse_activity')}")
 
-# Adiciona os parâmetros da URL
-params = {
-    "id_empresa": ID_DA_EMPRESA_CLIENTE,
-    "label_maquina": LABEL_DA_MAQUINA
-}
+    print("DEBUG: Coletando info do sistema - Init")
+    metrics.update({
+        "operation_sys": platform.system(),
+        "os_version": platform.release(),
+        "architecture": platform.machine(),
+        "host_name": platform.node(),
+        "processor": platform.processor(),
+        "physical_nuclei": psutil.cpu_count(logical=False),
+        "logical_nuclei": psutil.cpu_count(logical=True)
+    })
+    try:
+        metrics["cpu_frequency"] = psutil.cpu_freq().current
+    except Exception:
+        pass
+    print("DEBUG: Coletando info do sistema - End")
 
-try:
-    print("\nDEBUG: Enviando métricas para a API")
-    # O Pydantic é inteligente e vai mapear as chaves do dicionário `metrics`
-    # para os campos do modelo `MetricasPayload` automaticamente.
-    response = requests.post(API_URL, params=params, json=metrics, timeout=20)
-    
-    # Verifica se a requisição foi bem sucedida
-    response.raise_for_status() 
-    
-    print("Dados enviados com sucesso!")
-    print("Resposta da API:", response.json())
+    # --- Trecho CORRIGIDO para extract_win.py ---
+    print("DEBUG: Coletando uso de disco - Init")
+    # Inicializa as chaves esperadas pelo servidor como None
+    metrics["disk_usage_root"] = None
+    metrics["disk_usage_home"] = None
+    metrics["disk_usage_boot"] = None
 
-except requests.exceptions.HTTPError as errh:
-    print(f"Erro HTTP: {errh}")
-    print(f"Detalhes da resposta: {errh.response.text}")
-except requests.exceptions.ConnectionError as errc:
-    print(f"Erro de Conexão: {errc}")
-except requests.exceptions.Timeout as errt:
-    print(f"Timeout na Requisição: {errt}")
-except requests.exceptions.RequestException as err:
-    print(f"Ocorreu um erro: {err}")
+    for part in psutil.disk_partitions(all=False):
+        try:
+            # Trata a unidade C: como a partição root
+            if 'c:' in part.mountpoint.lower():
+                metrics["disk_usage_root"] = psutil.disk_usage(part.mountpoint).percent
+            # Você pode adicionar lógicas para outras partições se necessário
+        except Exception as e:
+            print(f"AVISO: Falha ao ler disco {part.device}: {e}")
+            continue
+    print("DEBUG: Coletando uso de disco - End")
+
+    print("DEBUG: Coletando S.M.A.R.T. - Init")
+    get_smart_status()
+    print(f"DEBUG: smart_overall -> {metrics.get('smart_overall')}")
+    print("DEBUG: Coletando S.M.A.R.T. - End")
+
+    print("DEBUG: Coletando bateria - Init")
+    try:
+        battery = psutil.sensors_battery()
+        if battery:
+            metrics.update({
+                "battery_perc": battery.percent,
+                "is_charging": battery.power_plugged,
+                "battery_time": battery.secsleft if not battery.power_plugged else None
+            })
+            print(f"DEBUG: battery_perc={battery.percent}, is_charging={battery.power_plugged}, secsleft={battery.secsleft}")
+        get_battery_health(c)
+        print(f"DEBUG: battery_health -> {metrics.get('battery_health')}")
+    except Exception as e:
+        print(f"AVISO: Falha ao coletar bateria: {e}")
+    print("DEBUG: Coletando bateria - End")
+
+    print("DEBUG: Coletando informações da placa-mãe - Init")
+    try:
+        board = c.Win32_BaseBoard()[0]
+        system_info = c.Win32_ComputerSystem()[0]
+        metrics.update({
+            "motherboard_manuf": board.Manufacturer,
+            "motherboard_name": board.Product,
+            "motherboard_snum": board.SerialNumber.strip(),
+            "motherboard_version": board.Version,
+            "model": system_info.Model
+        })
+        try:
+            metrics["serial_number"] = get_serial_number(c)
+        except NameError:
+            serial_final = board.SerialNumber.strip() if (board.SerialNumber and len(board.SerialNumber.strip()) > 4) else None
+            if not serial_final:
+                serial_final = gerar_identificador_unico(c)
+            metrics["serial_number"] = serial_final
+        print(f"DEBUG: motherboard_snum={metrics.get('motherboard_snum')}, serial_number={metrics.get('serial_number')}")
+    except Exception as e:
+        metrics["serial_number"] = gerar_identificador_unico(c)
+        print(f"AVISO: Falha ao coletar dados da placa-mãe: {e}")
+    print("DEBUG: Coletando informações da placa-mãe - End")
+
+    print("DEBUG: Coletando antivírus - Init")
+    metrics["antivirus_status"] = get_antivirus_status()
+    print(f"DEBUG: antivirus_status -> {metrics.get('antivirus_status')}")
+    print("DEBUG: Coletando antivírus - End")
+
+    print("DEBUG: Coletando firewall - Init")
+    try:
+        output = subprocess.run(
+            ['netsh', 'advfirewall', 'show', 'allprofiles'],
+            capture_output=True, text=True, check=True,
+            encoding='cp850', errors='ignore'
+        ).stdout
+
+        metrics["firewall_status_info"] = output.strip() # Armazena o output completo
+
+        is_active = False
+        # Itera sobre cada linha do output para encontrar um perfil ativo
+        for line in output.splitlines():
+            line_upper = line.upper()
+            # Procura por "ESTADO" e "LIGADO" na mesma linha
+            if 'ESTADO' in line_upper and 'LIGADO' in line_upper:
+                is_active = True
+                break # Encontrou um perfil ativo, pode parar a verificação
+            # Adiciona verificação para o inglês também
+            if 'STATE' in line_upper and 'ON' in line_upper:
+                is_active = True
+                break
+
+        metrics["firewall_active"] = is_active
+    except Exception as e:
+        print(f"AVISO: Falha ao coletar info do firewall: {e}")
+    print("DEBUG: Coletando firewall - End")
+
+    print("DEBUG: Consultando falhas de login - Init")
+    get_failed_logins(c)
+    print(f"DEBUG: failed_logins -> {metrics.get('failed_logins')}")
+    print("DEBUG: Consultando falhas de login - End")
+
+    print("DEBUG: Coletando softwares instalados - Init")
+    metrics["installed_softwares"] = get_installed_software()
+    print(f"DEBUG: Softwares coletados: {len(metrics.get('installed_softwares', []))}")
+    print("DEBUG: Coletando softwares instalados - End")
+
+    print("DEBUG: Coletando OS patches - Init")
+    try:
+        metrics["os_patches"] = [p.HotFixID for p in c.Win32_QuickFixEngineering()]
+        print(f"DEBUG: os_patches -> {metrics.get('os_patches')}")
+    except Exception as e:
+        metrics["os_patches"] = []
+        print(f"AVISO: Falha ao coletar os_patches: {e}")
+    print("DEBUG: Coletando OS patches - End")
+
+    print("DEBUG: Coletando GPU via NVML - Init")
+    try:
+        if pynvml is not None:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            metrics.update({
+                "gpu_name": pynvml.nvmlDeviceGetName(handle),
+                "gpu_temperature": pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU),
+                "gpu_usage": (mem_info.used / mem_info.total) * 100,
+                "gpu_memory": mem_info.total
+            })
+            #try:
+                #metrics["instant_power_consumption"] = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+            #except:
+                #pass
+            try:
+                metrics["fan_rpm_gpu"] = pynvml.nvmlDeviceGetFanSpeed(handle)
+            except:
+                pass
+            pynvml.nvmlShutdown()
+            print(f"DEBUG: GPU NVIDIA encontrada: {metrics.get('gpu_name')}")
+        else:
+            print("DEBUG: pynvml não disponível, pulando coleta de NVIDIA via NVML.")
+    except Exception as e:
+        print(f"DEBUG: Erro ao coletar dados da GPU via NVML: {e}")
+    print("DEBUG: Coletando GPU via NVML - End")
+
+    print("DEBUG: Coletando GPU integrada via WMI - Init")
+    try:
+        get_integrated_gpu_name(c)
+        print(f"DEBUG: inter_gpu_name -> {metrics.get('inter_gpu_name')}")
+    except Exception as e:
+        print(f"AVISO: Falha ao coletar GPU integrada: {e}")
+    print("DEBUG: Coletando GPU integrada via WMI - End")
+
+    print("DEBUG: Coletando temperatura da CPU - Init")
+    get_cpu_temperature_wmi()
+    print(f"DEBUG: cpu_temperature -> {metrics.get('cpu_temperature')}")
+    print("DEBUG: Coletando temperatura da CPU - End")
+
+    print("DEBUG: Finalizando métricas - Init")
+    metrics["time"] = time.time()
+    metrics = sanitize_json_values(metrics)
+    print("DEBUG: Finalizando métricas - End")
+
+    print("\n--- Métricas Coletadas ---")
+    for key, value in metrics.items():
+        if value is not None and value not in ({}, []):
+            print(f"{key}: {value}")
+
+    print("\n--- Métricas Não Coletadas ---")
+    for key, value in metrics.items():
+        if value is None:
+            print(f"{key}: {value}")
+
+    print("--- Fim da Execução da Coleta ---")
+
+    load_dotenv()
+    API_URL = os.getenv("API_URL", "http://127.0.0.1:8000/coletar-metricas/")
+    params = {"id_empresa": os.getenv("COMPANY_ID"), "label_maquina": os.getenv("DEVICE_LABEL")}
+    if not all(params.values()):
+        print("\nERRO: Variáveis de ambiente COMPANY_ID ou DEVICE_LABEL não definidas. Envio cancelado.")
+    else:
+        try:
+            print("\nDEBUG: Enviando métricas para a API - Init")
+            response = requests.post(API_URL, params=params, json=metrics, timeout=20)
+            response.raise_for_status()
+            print("Dados enviados com sucesso!")
+            print("Resposta da API:", response.json())
+            print("DEBUG: Enviando métricas para a API - End")
+        except requests.exceptions.RequestException as err:
+            print(f"ERRO AO ENVIAR DADOS: {err}")
+
+    print("\n--- Script Finalizado ---")
