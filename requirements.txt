@@ -11,3 +11,4 @@ supabase
 dotenv
 wmi
 setuptools
+pyjoules

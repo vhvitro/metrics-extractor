@@ -25,6 +25,11 @@ from pynput import mouse, keyboard
 import re
 # Requisições
 import requests
+#Imports de potência
+from pyJoules.energy_meter import EnergyContext
+from pyJoules.handler.csv_handler import CSVHandler
+from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain
+
 # Metricas exportadas
 metrics = {
     #Tempo (Volátil)
@@ -64,7 +69,7 @@ metrics = {
     "battery_perc": None,
     "is_charging": None,
     "uptime": None,
-    "instant_power_consumption": None, #Calcular entre duas medidas
+    "instant_power_consumption": None,
 
     #Atividade (Volátil)
     "click_rate": None,
@@ -76,7 +81,7 @@ metrics = {
     "ping_list": None,
     "pkg_loss_list": None,
     "mac": None,
-    "ip4": None,
+    "ipv4": None,
     "ipv6": None,
     "failed_logins": None,
     "antivirus_status": None, #Não achado ainda
@@ -257,7 +262,10 @@ try:
         pynvml.nvmlInit()
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            metrics["gpu_name"] = pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+            gpu_name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(gpu_name, bytes):
+                gpu_name = gpu_name.decode()
+            metrics["gpu_name"] = gpu_name
             metrics["gpu_temperature"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             metrics["gpu_usage"] = (mem_info.used / mem_info.total)
@@ -302,6 +310,57 @@ try:
 except Exception as e:
     print(f"ERRO: {e}")
 print("DEBUG: Bateria - End")
+#Potência Instantânea
+print("DEBUG: Potência - Init")
+try:
+    csv_handler = CSVHandler('monitoramento_energia.csv')
+    try:
+        # Tentativa 1: medir energia real com pyJoules (RAPL)
+        with EnergyContext(
+            handler=csv_handler,
+            domains=[RaplPackageDomain(0), RaplDramDomain(0)],
+            start_tag='monitor_interval'
+        ) as ctx:
+            time.sleep(1)
+
+        last_trace = csv_handler.get_trace()[-1]
+        duration_sec = last_trace.duration / 1_000_000
+        energy_joules = last_trace.energy / 1_000_000
+
+        if duration_sec > 0:
+            cpu_ram_power = energy_joules / duration_sec
+        else:
+            cpu_ram_power = 0.0
+
+    except Exception as rapl_err:
+        print(f"DEBUG: Falha no RAPL: {rapl_err}")
+        # Tentativa 2: estimar potência da CPU via TDP × uso
+        cpu_usage = psutil.cpu_percent(interval=0.5) / 100.0
+        cpu_tdp = 35.0  # watts — ajuste conforme o modelo da CPU
+        cpu_ram_power = cpu_usage * cpu_tdp
+        print(f"DEBUG: Potência estimada (CPU) = {cpu_ram_power:.2f} W (via TDP x uso)")
+
+    # Potência adicional da GPU (se disponível)
+    gpu_power = 0.0
+    try:
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)
+        gpu_power = gpu_power_mw / 1000.0  # mW → W
+        pynvml.nvmlShutdown()
+    except Exception as gpu_err:
+        print(f"DEBUG: Falha ao obter potência da GPU: {gpu_err}")
+
+    # Potência total instantânea (CPU+RAM + GPU)
+    total_power = cpu_ram_power + gpu_power
+    metrics["instant_power_consumption"] = total_power
+
+    print(f"DEBUG: CPU+RAM: {cpu_ram_power:.2f} W | GPU: {gpu_power:.2f} W | Total: {total_power:.2f} W")
+
+except Exception as e:
+    print(f"Erro ao coletar a potência: {e}")
+print("DEBUG: Potência - End")
+
 
 #Localização
 print("DEBUG: Localização - Init")
@@ -864,12 +923,17 @@ print("DEBUG: Perca de dados e ping - End")
 #Tempo
 metrics["time"] = time.time()
 
-print(metrics)
+print("\n--- Métricas Coletadas ---")
+for key, value in metrics.items():
+    if value is not None and value not in ({}, []):
+        print(f"{key}: {value}")
 
-for name, metric in metrics.items():
-    if metric is not None:
-        print("------------------------------------------")
-        print(name)
+print("\n--- Métricas Não Coletadas ---")
+for key, value in metrics.items():
+    if value is None:
+        print(f"{key}: {value}")
+
+print("--- Fim da Execução da Coleta ---")
 
 """!! Seção para enviar os dados para a API FastAPI !!""" 
 
