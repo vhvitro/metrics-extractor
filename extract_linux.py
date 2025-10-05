@@ -695,9 +695,10 @@ def find_all_disks():
 
 
 def parse_smart_data(output_text):
+    # Dicionário para guardar as métricas específicas do disco
     smart_metrics = {
-        "model": None,
-        "serial_number": None,
+        "disk_model": None,                 # <-- NOME ALTERADO
+        "disk_serial_number": None,         # <-- NOME ALTERADO
         "smart_overall": None,
         "ssd_perc_lifetime": None,
         "ssd_power_hours": None,
@@ -706,34 +707,44 @@ def parse_smart_data(output_text):
         "ssd_log_errors": None
     }
 
+    # Procura pelo modelo do disco (Model Number)
     model_match = re.search(r'Model Number:\s+(.*)', output_text)
     if model_match:
-        smart_metrics['model'] = model_match.group(1).strip()
+        smart_metrics['disk_model'] = model_match.group(1).strip()
 
+    # Procura pelo número de série do disco
     serial_match = re.search(r'Serial Number:\s+(.*)', output_text)
     if serial_match:
-        smart_metrics['serial_number'] = serial_match.group(1).strip()
+        smart_metrics['disk_serial_number'] = serial_match.group(1).strip()
 
+    # Procura pelo estado geral de saúde do disco
     overall_match = re.search(r'SMART overall-health self-assessment test result:\s+(.*)', output_text)
     if overall_match:
         smart_metrics['smart_overall'] = overall_match.group(1).strip()
 
+    # Procura pela percentagem de vida útil utilizada (para SSDs)
     used_match = re.search(r'Percentage Used:\s+(\d+)%', output_text)
     if used_match:
         smart_metrics['ssd_perc_lifetime'] = int(used_match.group(1))
 
+    # Procura pelas horas em que o disco esteve ligado
     power_hours_match = re.search(r'Power On Hours:\s+(\d+)', output_text)
     if power_hours_match:
-        smart_metrics['ssd_power_hours'] = int(power_hours_match.group(1))
+        # Remove vírgulas de números grandes, se houver
+        power_hours_str = power_hours_match.group(1).replace(',', '')
+        smart_metrics['ssd_power_hours'] = int(power_hours_str)
 
+    # Procura pelo número de desligamentos inseguros
     unsafe_shutdowns_match = re.search(r'Unsafe Shutdowns:\s+(\d+)', output_text)
     if unsafe_shutdowns_match:
         smart_metrics['ssd_unsafe_shutdowns'] = int(unsafe_shutdowns_match.group(1))
 
+    # Procura por erros de integridade de dados e média
     media_errors_match = re.search(r'Media and Data Integrity Errors:\s+(\d+)', output_text)
     if media_errors_match:
         smart_metrics['ssd_irrecuperable_errors'] = int(media_errors_match.group(1))
 
+    # Procura por entradas no log de erros
     log_errors_match = re.search(r'Error Information Log Entries:\s+(\d+)', output_text)
     if log_errors_match:
         smart_metrics['ssd_log_errors'] = int(log_errors_match.group(1))
