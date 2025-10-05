@@ -326,7 +326,7 @@ if __name__ == "__main__":
     print("DEBUG: Coletando métricas básicas de CPU/RAM/Uptime - Init")
     metrics.update({
         "ram_usage": psutil.virtual_memory().percent / 100,
-        "cpu_usage": psutil.cpu_percent(interval=1),
+        "cpu_usage": psutil.cpu_percent(interval=1) / 100,
         "total_memory": psutil.virtual_memory().total,
         "swap_usage": psutil.swap_memory().percent,
         "swap_total": psutil.swap_memory().total,
@@ -403,7 +403,7 @@ if __name__ == "__main__":
         try:
             # Trata a unidade C: como a partição root
             if 'c:' in part.mountpoint.lower():
-                metrics["disk_usage_root"] = psutil.disk_usage(part.mountpoint).percent
+                metrics["disk_usage_root"] = psutil.disk_usage(part.mountpoint).percent / 100
             # Você pode adicionar lógicas para outras partições se necessário
         except Exception as e:
             print(f"AVISO: Falha ao ler disco {part.device}: {e}")
@@ -422,9 +422,16 @@ if __name__ == "__main__":
             metrics.update({
                 "battery_perc": battery.percent,
                 "is_charging": battery.power_plugged,
-                "battery_time": battery.secsleft if not battery.power_plugged else None
             })
+            # --- Adicionando battery_time ---
+            if not battery.power_plugged and battery.secsleft != psutil.POWER_TIME_UNKNOWN:
+                metrics["battery_time"] = battery.secsleft
+            else:
+                metrics["battery_time"] = None
+            # -------------------------------
             print(f"DEBUG: battery_perc={battery.percent}, is_charging={battery.power_plugged}, secsleft={battery.secsleft}")
+        
+        # Chama a função de saúde da bateria (WMI)
         get_battery_health(c)
         print(f"DEBUG: battery_health -> {metrics.get('battery_health')}")
     except Exception as e:
@@ -513,25 +520,33 @@ if __name__ == "__main__":
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            
+            # 1. Coleta de VOLTAGEM (A que estava falhando)
+            try:
+                metrics["gpu_voltage"] = pynvml.nvmlDeviceGetVoltage(handle)
+            except (pynvml.NVMLError, AttributeError):
+                metrics["gpu_voltage"] = None
+                
+            # 2. Coleta de DADOS BÁSICOS (Temperatura, Uso, Memória)
             metrics.update({
                 "gpu_name": pynvml.nvmlDeviceGetName(handle),
                 "gpu_temperature": pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU),
-                "gpu_usage": (mem_info.used / mem_info.total) * 100,
+                "gpu_usage": (mem_info.used / mem_info.total),
                 "gpu_memory": mem_info.total
             })
-            #try:
-                #metrics["instant_power_consumption"] = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-            #except:
-                #pass
+
+            # 3. Coleta de RPM (Ventoinha)
             try:
                 metrics["fan_rpm_gpu"] = pynvml.nvmlDeviceGetFanSpeed(handle)
-            except:
-                pass
+            except (pynvml.NVMLError, AttributeError):
+                metrics["fan_rpm_gpu"] = None
+
             pynvml.nvmlShutdown()
             print(f"DEBUG: GPU NVIDIA encontrada: {metrics.get('gpu_name')}")
         else:
             print("DEBUG: pynvml não disponível, pulando coleta de NVIDIA via NVML.")
     except Exception as e:
+        # Se falhar aqui, o erro é mais grave (driver, placa)
         print(f"DEBUG: Erro ao coletar dados da GPU via NVML: {e}")
     print("DEBUG: Coletando GPU via NVML - End")
 
