@@ -13,6 +13,12 @@ import hashlib
 import uuid
 import winreg
 import datetime 
+try:
+    from pyJoules.energy_meter import EnergyContext
+    from pyJoules.handler.csv_handler import CSVHandler
+    from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain
+except ImportError:
+    print("AVISO: A biblioteca 'pyJoules' não está instalada. A coleta de potência será por estimativa.")
 
 # -- Bibliotecas específicas do Windows --
 try:
@@ -72,7 +78,6 @@ def gerar_identificador_unico(wmi_connection):
     except Exception as e:
         print(f"ERRO CRÍTICO ao gerar fingerprint: {e}"); return str(uuid.uuid4())
 
-# ### FUNÇÃO CORRIGIDA E FINAL ###
 def get_serial_number(wmi_connection):
     try:
         # 1. Tenta Win32_BIOS (geralmente o mais confiável para o serial do sistema)
@@ -101,6 +106,53 @@ def get_serial_number(wmi_connection):
     except Exception as e:
         print(f"AVISO: Falha ao obter serial_number: {e}")
         return gerar_identificador_unico(wmi_connection)
+    
+def get_instant_power_consumption(metrics):
+    """
+    Coleta o consumo de energia instantâneo da CPU/RAM (via pyJoules/TDP) e da GPU (via NVML).
+    """
+    try:
+        # A API do pyJoules para Windows (WMI) pode ser mais complexa
+        # e o pyJoules foca muito no Linux/RAPL. Faremos a estimativa mais simples
+        # e confiável baseada no uso da CPU como fallback principal,
+        # e tentaremos a leitura da GPU via NVML (que é robusta no Windows).
+
+        cpu_ram_power = 0.0
+        
+        # --- Estimativa de Potência da CPU (Fallback) ---
+        # No Windows, a leitura de potência da CPU não é trivial sem drivers específicos (RAPL)
+        # O método mais seguro é estimar via TDP * uso
+        
+        # Valor de TDP típico para notebook (pode ser ajustado)
+        cpu_tdp = 35.0  # Watts
+        cpu_usage = psutil.cpu_percent(interval=0.5) / 100.0
+        cpu_ram_power = cpu_usage * cpu_tdp
+        print(f"DEBUG: Potência estimada (CPU) = {cpu_ram_power:.2f} W (via TDP x uso)")
+
+        # --- Potência da GPU (NVIDIA via pynvml) ---
+        gpu_power = 0.0
+        if pynvml is not None:
+            try:
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                # nvmlDeviceGetPowerUsage retorna mW (miliwatts)
+                gpu_power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)
+                gpu_power = gpu_power_mw / 1000.0  # mW → W
+                pynvml.nvmlShutdown()
+            except Exception as gpu_err:
+                # É comum falhar se for uma GPU integrada
+                # print(f"DEBUG: Falha ao obter potência da GPU via NVML: {gpu_err}")
+                pass
+        
+        # Potência total instantânea (CPU+RAM + GPU)
+        total_power = cpu_ram_power + gpu_power
+        metrics["instant_power_consumption"] = round(total_power, 2)
+
+        print(f"DEBUG: CPU+RAM: {cpu_ram_power:.2f} W | GPU: {gpu_power:.2f} W | Total: {total_power:.2f} W")
+
+    except Exception as e:
+        print(f"ERRO: Falha crítica na coleta de potência: {e}")
+        metrics["instant_power_consumption"] = None
 
 def get_integrated_gpu_name(wmi_connection):
     try:
@@ -495,6 +547,11 @@ if __name__ == "__main__":
     get_cpu_temperature_wmi()
     print(f"DEBUG: cpu_temperature -> {metrics.get('cpu_temperature')}")
     print("DEBUG: Coletando temperatura da CPU - End")
+
+    print("DEBUG: Coletando Potência Instantânea - Init")
+    get_instant_power_consumption(metrics)
+    print("DEBUG: Potência Instantânea ->", metrics.get("instant_power_consumption"))
+    print("DEBUG: Coletando Potência Instantânea - End")
 
     print("DEBUG: Finalizando métricas - Init")
     metrics["time"] = time.time()
