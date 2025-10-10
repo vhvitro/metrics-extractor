@@ -71,6 +71,7 @@ class MetricasPayload(BaseModel):
     battery_perc: Optional[float] = None
     is_charging: Optional[bool] = None
     uptime: Optional[float] = None
+    instant_power_consumption: Optional[float] = None
     click_rate: Optional[float] = None
     keypress_rate: Optional[float] = None
     mouse_activity: Optional[bool] = None
