@@ -62,7 +62,7 @@
 
     After this, the metrics extractor and uvicorn server should be installed and scheduled correctly.
 
-**Deactiving the scheduler**
+    **Deactiving the scheduler**
 
     If you want stop the service, run the following command inside the `metrics-extractor` directory (you will need root/admin privileges to do so).
 
