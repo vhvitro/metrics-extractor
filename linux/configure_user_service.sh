@@ -2,7 +2,7 @@
 set -e
 
 APP_NAME="bledot-metrics-extractor"
-TIMER_PERIOD="5min"
+TIMER_PERIOD="1h"
 RUN_SCRIPT_NAME="run_extraction.py"
 VENV_DIR="bledot-env"
 WORK_DIR=$(cd "$(dirname "$0")/.." && pwd)
