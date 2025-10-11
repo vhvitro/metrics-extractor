@@ -40,7 +40,7 @@
 
 5. **Configure the server service**
 
-    Run the appropriate script (`config_linux.sh` for Linux, `configure_win.bat` for Windows) inside the `server_config` directory with root/admin privileges.
+    Run the appropriate script (`configure_linux.sh` for Linux, `configure_win.bat` for Windows) inside the `server_config` directory with root/admin privileges.
 
 6. **Configure the script scheduler**
 
@@ -62,7 +62,7 @@
 
     After this, the metrics extractor and uvicorn server should be installed and scheduled correctly.
 
-**Desactiving the scheduler**
+**Deactiving the scheduler**
 
     If you want stop the service, run the following command inside the `metrics-extractor` directory (you will need root/admin privileges to do so).
 
@@ -75,4 +75,5 @@
     **Windows:**
 
     ```bash
-    schtasks /create /SC HOURLY /TN "Bledot - Metrics Extractor" /TR "cmd.exe /c '%CD%\bledot-env\Scripts\activate & python %CD%\windows\extract_win.py & deactivate'" /RL HIGHEST
+    schtasks /delete /tn "Bledot - Metrics Extractor"
+    ```
