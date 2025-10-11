@@ -49,10 +49,8 @@
     **Linux:**
 
     ```bash
-    sudo crontab -l | { cat; echo "0 * * * * source $(pwd)/bledot-env/bin/activate; python $(pwd)/linux/extract_linux.py; deactivate # Bledot - Metrics Extractor"; } | sudo crontab -
+    cd linux && chmod +x *.sh && sudo ./install_permissions.sh && ./configure_user_service.sh
     ```
-
-    Note: if you see any messages like "no crontab for root", don't worry: the script will run just fine.
 
     **Windows:**
 
@@ -63,3 +61,18 @@
 7. **Run the `deactivate` command and reboot**
 
     After this, the metrics extractor and uvicorn server should be installed and scheduled correctly.
+
+8. **Desactiving the scheduler**
+
+    Run the following command inside the `metrics-extractor` directory (you will need root/admin privileges to do so).
+
+    **Linux:**
+
+    ```bash
+    cd linux && ./configure_user_service.sh --uninstall && sudo ./install_permissions.sh --uninstall
+    ```
+
+    **Windows:**
+
+    ```bash
+    schtasks /create /SC HOURLY /TN "Bledot - Metrics Extractor" /TR "cmd.exe /c '%CD%\bledot-env\Scripts\activate & python %CD%\windows\extract_win.py & deactivate'" /RL HIGHEST
