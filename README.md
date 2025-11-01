@@ -55,7 +55,7 @@
     **Windows:**
 
     ```bash
-    schtasks /create /SC HOURLY /TN "Bledot - Metrics Extractor" /TR "cmd.exe /c '%CD%\bledot-env\Scripts\activate & python %CD%\windows\extract_win.py & deactivate'" /RL HIGHEST
+    schtasks /create /SC MINUTE /mo 10 /TN "Bledot - Metrics Extractor" /TR "cmd.exe /c '%CD%\bledot-env\Scripts\activate & python %CD%\windows\extract_win.py & deactivate'" /RL HIGHEST
     ```
 
 7. **Run the `deactivate` command and reboot**
